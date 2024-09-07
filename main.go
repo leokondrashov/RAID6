@@ -7,6 +7,9 @@ import (
 )
 
 func main() {
-	m, _ := pkg.CheckSumMatrix(4, 4)
+	m, _ := pkg.CheckSumMatrix(3, 3)
+	fmt.Println(m)
+
+	m, _ = pkg.CheckSumMatrixWithInv(3, 3)
 	fmt.Println(m)
 }
