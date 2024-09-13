@@ -6,6 +6,10 @@ import (
 	"strconv"
 )
 
+const (
+	lengthSize = strconv.IntSize / 8
+)
+
 // General case of checksum matrix.
 // Has the property that the first d rows are identity matrix
 // and it is invertible if C rows are removed.
@@ -155,8 +159,8 @@ func StoreFile(file string, m Matrix, directory string) error {
 
 	// Prepend the file size to the data
 	length := len(data)
-	lengthArray := make([]byte, strconv.IntSize/8)
-	for i := 0; i < strconv.IntSize/8; i++ {
+	lengthArray := make([]byte, lengthSize)
+	for i := 0; i < lengthSize; i++ {
 		lengthArray[i] = byte(length >> (8 * i))
 	}
 	data = append(lengthArray, data...)
@@ -188,7 +192,66 @@ func StoreFile(file string, m Matrix, directory string) error {
 }
 
 func ReadFile(file string, m Matrix, directory string) error {
-	return fmt.Errorf("not implemented")
+	d := len(m[0])
+	c := len(m) - d
+
+	// Create directory if it does not exist
+	if _, err := os.Stat(directory); os.IsNotExist(err) {
+		return fmt.Errorf("directory does not exist")
+	}
+
+	// Read the shards
+	shards := make([][]byte, len(m))
+	for i := 0; i < len(m); i++ {
+		shard, err := os.ReadFile(fmt.Sprintf("%s/shard%d", directory, i))
+		if err != nil {
+			return fmt.Errorf("error reading shard %d, consider running recovery", i)
+		}
+		shards[i] = shard
+	}
+
+	// Check the shards
+	parity := shards[d:]
+	data := shards[:d]
+	restored, err := m[d:].Multiply(data)
+	if err != nil {
+		return fmt.Errorf("error checking parity: %w", err)
+	}
+
+	// Compare the parity with the restored data
+	// Single error means that parity disk has the error -> recoverable
+	// Multiple errors mean that data disks have the error -> unrecoverable
+	parityErrors := 0
+	for i := 0; i < c; i++ {
+		for j := 0; j < len(restored[i]); j++ {
+			if restored[i][j] != parity[i][j] {
+				parityErrors++
+			}
+		}
+	}
+
+	if parityErrors > 1 {
+		return fmt.Errorf("too many parity errors, unrecoverable")
+	} else if parityErrors == 1 {
+		fmt.Println("parity has error, consider running recovery")
+	}
+
+	// Write the data to the file
+	rawData := make([]byte, 0)
+	for i := 0; i < len(data); i++ {
+		rawData = append(rawData, data[i]...)
+	}
+	length := 0
+	for i := 0; i < lengthSize; i++ {
+		length |= int(rawData[i]) << (8 * i)
+	}
+
+	err = os.WriteFile(file, rawData[lengthSize:length+lengthSize], 0644)
+	if err != nil {
+		return fmt.Errorf("error writing file: %w", err)
+	}
+
+	return nil
 }
 
 func RecoverData(m Matrix, directory string) error {

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/lkondras/RAID6/pkg"
 )
@@ -37,6 +38,7 @@ func main() {
 		err := pkg.StoreFile(file, m, *directory)
 		if err != nil {
 			fmt.Println("Error storing file:", err)
+			os.Exit(1)
 		}
 	} else if operation == "recover" {
 		fmt.Println("Recovering data")
@@ -44,10 +46,14 @@ func main() {
 	} else if operation == "read" {
 		file := flag.CommandLine.Arg(1)
 		fmt.Println("Reading to file", file)
-		pkg.ReadFile(file, m, *directory)
+		err := pkg.ReadFile(file, m, *directory)
+		if err != nil {
+			fmt.Println("Error reading file:", err)
+			os.Exit(1)
+		}
 	} else {
 		fmt.Println("Invalid operation")
-		return
+		os.Exit(1)
 	}
 
 }
