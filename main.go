@@ -30,5 +30,24 @@ func main() {
 		m, _ = pkg.CheckSumMatrix(*dataDiskCount, *parityDiskCount)
 	}
 
-	fmt.Println(m)
+	operation := flag.CommandLine.Arg(0)
+	if operation == "store" {
+		file := flag.CommandLine.Arg(1)
+		fmt.Println("Storing file", file)
+		err := pkg.StoreFile(file, m, *directory)
+		if err != nil {
+			fmt.Println("Error storing file:", err)
+		}
+	} else if operation == "recover" {
+		fmt.Println("Recovering data")
+		pkg.RecoverData(m, *directory)
+	} else if operation == "read" {
+		file := flag.CommandLine.Arg(1)
+		fmt.Println("Reading to file", file)
+		pkg.ReadFile(file, m, *directory)
+	} else {
+		fmt.Println("Invalid operation")
+		return
+	}
+
 }

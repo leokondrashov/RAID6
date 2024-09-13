@@ -1,5 +1,11 @@
 package pkg
 
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
+
 // General case of checksum matrix.
 // Has the property that the first d rows are identity matrix
 // and it is invertible if C rows are removed.
@@ -112,4 +118,79 @@ func CheckSumMatrixClassic() (Matrix, error) {
 	}
 
 	return m, nil
+}
+
+func (m Matrix) MultiplyData(data []byte) ([][]byte, error) {
+	d := len(m[0])
+
+	// Split the data into d-sized chunks
+	chunks := make([][]byte, 0)
+	chunkLen := len(data) / d
+	for i := 0; i < len(data); i += chunkLen {
+		chunks = append(chunks, data[i:i+chunkLen])
+	}
+
+	// Multiply the chunks by the matrix
+	shards, err := m.Multiply(chunks)
+	if err != nil {
+		return nil, err
+	}
+
+	return shards, nil
+}
+
+// Stores a file of arbitrary size in data shards using the provided matrix.
+// First 8 bytes of the file are used to store the file size.
+func StoreFile(file string, m Matrix, directory string) error {
+	// Create directory if it does not exist
+	if _, err := os.Stat(directory); os.IsNotExist(err) {
+		os.Mkdir(directory, 0755)
+	}
+
+	// Read the file
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+
+	// Prepend the file size to the data
+	length := len(data)
+	lengthArray := make([]byte, strconv.IntSize/8)
+	for i := 0; i < strconv.IntSize/8; i++ {
+		lengthArray[i] = byte(length >> (8 * i))
+	}
+	data = append(lengthArray, data...)
+	length += strconv.IntSize / 8
+
+	// Append padding if necessary
+	paddings := 0
+	if length%len(m[0]) != 0 {
+		paddings = len(m[0]) - length%len(m[0])
+	}
+	data = append(data, make([]byte, paddings)...)
+
+	// Split the data into shards
+	// Also calculates the parity shards
+	shards, err := m.MultiplyData(data)
+	if err != nil {
+		return err
+	}
+
+	// Write the shards to the directory
+	for i, shard := range shards {
+		err = os.WriteFile(fmt.Sprintf("%s/shard%d", directory, i), shard, 0644)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ReadFile(file string, m Matrix, directory string) error {
+	return fmt.Errorf("not implemented")
+}
+
+func RecoverData(m Matrix, directory string) error {
+	return fmt.Errorf("not implemented")
 }
