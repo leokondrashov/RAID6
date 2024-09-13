@@ -201,8 +201,8 @@ func ReadFile(file string, m Matrix, directory string) error {
 	}
 
 	// Read the shards
-	shards := make([][]byte, len(m))
-	for i := 0; i < len(m); i++ {
+	shards := make([][]byte, d+c)
+	for i := 0; i < d+c; i++ {
 		shard, err := os.ReadFile(fmt.Sprintf("%s/shard%d", directory, i))
 		if err != nil {
 			return fmt.Errorf("error reading shard %d, consider running recovery", i)
@@ -255,5 +255,71 @@ func ReadFile(file string, m Matrix, directory string) error {
 }
 
 func RecoverData(m Matrix, directory string) error {
-	return fmt.Errorf("not implemented")
+	d := len(m[0])
+
+	// Create directory if it does not exist
+	if _, err := os.Stat(directory); os.IsNotExist(err) {
+		return fmt.Errorf("directory does not exist")
+	}
+
+	// Read the shards
+	shards := make([][]byte, 0)
+	presentShards := make([]int, 0)
+	missingShards := make([]int, 0)
+	for i := 0; i < len(m); i++ {
+		shard, err := os.ReadFile(fmt.Sprintf("%s/shard%d", directory, i))
+		if err == nil {
+			presentShards = append(presentShards, i)
+			shards = append(shards, shard)
+		} else {
+			missingShards = append(missingShards, i)
+		}
+	}
+
+	if len(presentShards) < d {
+		return fmt.Errorf("too many missing shards, unrecoverable")
+	} else if len(missingShards) == 0 {
+		return nil
+	}
+
+	// Calculate the missing data shards
+	recoveryRows := make([][]byte, d)
+	for i := 0; i < d; i++ {
+		recoveryRows[i] = m[presentShards[i]]
+	}
+	tmp, err := newMatrixData(recoveryRows)
+	if err != nil {
+		return fmt.Errorf("error creating recovery matrix: %w", err)
+	}
+	recoveryMatrix, err := tmp.Invert()
+	if err != nil {
+		return fmt.Errorf("error inverting recovery matrix: %w", err)
+	}
+
+	recoveredData, err := recoveryMatrix.Multiply(shards[:d])
+	if err != nil {
+		return fmt.Errorf("error recovering data: %w", err)
+	}
+
+	// Write the recovered data to the directory
+	for i, shard := range recoveredData {
+		err = os.WriteFile(fmt.Sprintf("%s/shard%d", directory, i), shard, 0644)
+		if err != nil {
+			return fmt.Errorf("error writing recovered shard %d: %w", i, err)
+		}
+	}
+
+	// Recompute the parity shards
+	parity, err := m[d:].Multiply(recoveredData)
+	if err != nil {
+		return fmt.Errorf("error computing parity: %w", err)
+	}
+	for i, shard := range parity {
+		err = os.WriteFile(fmt.Sprintf("%s/shard%d", directory, d+i), shard, 0644)
+		if err != nil {
+			return fmt.Errorf("error writing parity shard %d: %w", d+i, err)
+		}
+	}
+
+	return nil
 }

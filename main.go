@@ -42,7 +42,11 @@ func main() {
 		}
 	} else if operation == "recover" {
 		fmt.Println("Recovering data")
-		pkg.RecoverData(m, *directory)
+		err := pkg.RecoverData(m, *directory)
+		if err != nil {
+			fmt.Println("Error recovering data:", err)
+			os.Exit(1)
+		}
 	} else if operation == "read" {
 		file := flag.CommandLine.Arg(1)
 		fmt.Println("Reading to file", file)
