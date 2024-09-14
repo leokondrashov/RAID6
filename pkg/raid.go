@@ -1,10 +1,10 @@
 package pkg
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
-	"encoding/json"
 )
 
 const (
@@ -12,15 +12,14 @@ const (
 )
 
 type FileDescriptor struct {
-	Name       string	`json:"name"`
-	Offset     int64      `json:"offset"`
-	DiskSize int64        `json:"diskSize"`
-	Size       int      `json:"size"`
+	Name     string `json:"name"`
+	Offset   int64  `json:"offset"`
+	DiskSize int64  `json:"diskSize"`
 }
 
 type FileSys struct {
-	Files      map[string]FileDescriptor  `json:"files"`
-	DiskSize int64                `json:"diskSize"`
+	Files    map[string]FileDescriptor `json:"files"`
+	DiskSize int64                     `json:"diskSize"`
 }
 
 var raid FileSys
@@ -43,7 +42,7 @@ func loadRaidFromFile(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		raid = FileSys{
-			Files: map[string]FileDescriptor{},
+			Files:    map[string]FileDescriptor{},
 			DiskSize: 0,
 		}
 		saveRaidToFile(filename)
@@ -63,7 +62,7 @@ func InitRaid() error {
 	if err != nil {
 		fmt.Println("Raid loaded unsuccessfully from raid.json")
 		return err
-	} 
+	}
 	return nil
 }
 
@@ -200,18 +199,12 @@ func (m Matrix) MultiplyData(data []byte) ([][]byte, error) {
 	return shards, nil
 }
 
-type NameEmtpyError struct {}
-
-func (e *NameEmtpyError) Error() string {
-    return "file already exists"
-}
-
 // Stores a file of arbitrary size in data shards using the provided matrix.
 // First 8 bytes of the file are used to store the file size.
 func StoreFile(file string, m Matrix, directory string) error {
 	// Check FileSys
 	if _, ok := raid.Files[file]; ok {
-		return &NameEmtpyError{}
+		return fmt.Errorf("directory does not exist")
 	}
 
 	// Create directory if it does not exist
@@ -262,7 +255,6 @@ func StoreFile(file string, m Matrix, directory string) error {
 	// create file descriptor
 	var FileDescriptor FileDescriptor
 	FileDescriptor.Name = file
-	FileDescriptor.Size = len(data)
 	FileDescriptor.DiskSize = int64(len(shards[0]))
 	FileDescriptor.Offset = raid.DiskSize
 	raid.Files[file] = FileDescriptor
