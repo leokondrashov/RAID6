@@ -13,11 +13,12 @@ var (
 	parityDiskCount = flag.Int("parity", 2, "Number of parity disks")
 	classicRAID6    = flag.Bool("classic", false, "Use classic RAID6 Linux implementation")
 	directory       = flag.String("dir", "data", "Directory to use for the shards")
+	raidFile        = flag.String("raid", "raid.json", "RAID filesystem records file")
 )
 
 func main() {
 
-	err := pkg.InitRaid()
+	err := pkg.InitRaid(*raidFile)
 	if err != nil {
 		fmt.Println("No Json config, create new one")
 		return
@@ -56,7 +57,7 @@ func main() {
 	} else if operation == "read" {
 		fileSrc := flag.CommandLine.Arg(1)
 		fileDst := flag.CommandLine.Arg(2)
-		fmt.Println("Reading to file ", fileDst, " from ", fileSrc)
+		fmt.Println("Reading to file", fileDst, "from", fileSrc)
 		err := pkg.ReadFile(fileSrc, fileDst, m, *directory)
 		if err != nil {
 			fmt.Println("Error reading file:", err)

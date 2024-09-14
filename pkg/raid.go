@@ -7,14 +7,11 @@ import (
 	"strconv"
 )
 
-const (
-	lengthSize = strconv.IntSize / 8
-)
-
 type FileDescriptor struct {
 	Name     string `json:"name"`
 	Offset   int64  `json:"offset"`
 	DiskSize int64  `json:"diskSize"`
+	Size     int    `json:"size"`
 }
 
 type FileSys struct {
@@ -41,11 +38,6 @@ func saveRaidToFile(filename string) error {
 func loadRaidFromFile(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		raid = FileSys{
-			Files:    map[string]FileDescriptor{},
-			DiskSize: 0,
-		}
-		saveRaidToFile(filename)
 		return err
 	}
 
@@ -57,12 +49,24 @@ func loadRaidFromFile(filename string) error {
 	return nil
 }
 
-func InitRaid() error {
-	err := loadRaidFromFile("raid.json")
+func InitRaid(raidFile string) error {
+	err := loadRaidFromFile(raidFile)
+
+	if os.IsNotExist(err) {
+		raid = FileSys{
+			Files:    map[string]FileDescriptor{},
+			DiskSize: 0,
+		}
+		saveRaidToFile(raidFile)
+
+		return nil
+	}
+
 	if err != nil {
-		fmt.Println("Raid loaded unsuccessfully from raid.json")
+		fmt.Println("Raid loaded unsuccessfully from", raidFile)
 		return err
 	}
+
 	return nil
 }
 
@@ -204,7 +208,7 @@ func (m Matrix) MultiplyData(data []byte) ([][]byte, error) {
 func StoreFile(file string, m Matrix, directory string) error {
 	// Check FileSys
 	if _, ok := raid.Files[file]; ok {
-		return fmt.Errorf("directory does not exist")
+		return fmt.Errorf("file already exists")
 	}
 
 	// Create directory if it does not exist
@@ -218,17 +222,9 @@ func StoreFile(file string, m Matrix, directory string) error {
 		return err
 	}
 
-	// Prepend the file size to the data
-	length := len(data)
-	lengthArray := make([]byte, lengthSize)
-	for i := 0; i < lengthSize; i++ {
-		lengthArray[i] = byte(length >> (8 * i))
-	}
-	data = append(lengthArray, data...)
-	length += strconv.IntSize / 8
-
 	// Append padding if necessary
 	paddings := 0
+	length := len(data)
 	if length%len(m[0]) != 0 {
 		paddings = len(m[0]) - length%len(m[0])
 	}
@@ -243,11 +239,13 @@ func StoreFile(file string, m Matrix, directory string) error {
 
 	// Write the shards to the directory
 	for i, shard := range shards {
-		// err = os.WriteFile(fmt.Sprintf("%s/shard%d", directory, i), shard, 0644)
-		diskPath := "./data/shard" + strconv.Itoa(i)
+		diskPath := fmt.Sprintf("%s/shard%d", directory, i)
 		f, err := os.OpenFile(diskPath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
 			f, err = os.Create(diskPath)
+			if err != nil {
+				return fmt.Errorf("error creating shard %d: %w", i, err)
+			}
 		}
 		f.Write(shard)
 	}
@@ -255,6 +253,7 @@ func StoreFile(file string, m Matrix, directory string) error {
 	// create file descriptor
 	var FileDescriptor FileDescriptor
 	FileDescriptor.Name = file
+	FileDescriptor.Size = length
 	FileDescriptor.DiskSize = int64(len(shards[0]))
 	FileDescriptor.Offset = raid.DiskSize
 	raid.Files[file] = FileDescriptor
@@ -263,8 +262,7 @@ func StoreFile(file string, m Matrix, directory string) error {
 	// export the raid to JSON
 	err = saveRaidToFile("raid.json")
 	if err != nil {
-		fmt.Println("Error saving Raid6 to file:", err)
-		return err
+		return fmt.Errorf("error saving Raid6 to file: %f", err)
 	}
 	return nil
 }
@@ -280,14 +278,14 @@ func ReadFile(fileSrc string, file string, m Matrix, directory string) error {
 
 	// Read the shards corresponding to the file
 	shards := make([][]byte, d+c)
-	FileDescriptor := raid.Files[fileSrc]
+	fileDescriptor := raid.Files[fileSrc]
 
 	for i := 0; i < d+c; i++ {
 		// shard, err := os.ReadFile(fmt.Sprintf("%s/shard%d", directory, i))
 		diskPath := "./data/shard" + strconv.Itoa(i)
-		buf := make([]byte, FileDescriptor.DiskSize)
+		buf := make([]byte, fileDescriptor.DiskSize)
 		f, _ := os.Open(diskPath)
-		_, err := f.ReadAt(buf, FileDescriptor.Offset)
+		_, err := f.ReadAt(buf, fileDescriptor.Offset)
 
 		if err != nil {
 			return fmt.Errorf("error reading shard %d, consider running recovery", i)
@@ -326,12 +324,8 @@ func ReadFile(fileSrc string, file string, m Matrix, directory string) error {
 	for i := 0; i < len(data); i++ {
 		rawData = append(rawData, data[i]...)
 	}
-	length := 0
-	for i := 0; i < lengthSize; i++ {
-		length |= int(rawData[i]) << (8 * i)
-	}
 
-	err = os.WriteFile(file, rawData[lengthSize:length+lengthSize], 0644)
+	err = os.WriteFile(file, rawData[:fileDescriptor.Size], 0644)
 	if err != nil {
 		return fmt.Errorf("error writing file: %w", err)
 	}
