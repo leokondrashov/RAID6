@@ -17,6 +17,12 @@ var (
 
 func main() {
 
+	err := pkg.InitRaid()
+	if err != nil {
+		fmt.Println("No Json config, create new one")
+		return
+	}
+
 	flag.Parse()
 
 	if *classicRAID6 && (*dataDiskCount != 6 || *parityDiskCount != 2) {
@@ -48,9 +54,10 @@ func main() {
 			os.Exit(1)
 		}
 	} else if operation == "read" {
-		file := flag.CommandLine.Arg(1)
-		fmt.Println("Reading to file", file)
-		err := pkg.ReadFile(file, m, *directory)
+		fileSrc := flag.CommandLine.Arg(1)
+		fileDst := flag.CommandLine.Arg(2)
+		fmt.Println("Reading to file ", fileDst, " from ", fileSrc)
+		err := pkg.ReadFile(fileSrc, fileDst, m, *directory)
 		if err != nil {
 			fmt.Println("Error reading file:", err)
 			os.Exit(1)

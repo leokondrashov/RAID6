@@ -4,11 +4,68 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"encoding/json"
 )
 
 const (
 	lengthSize = strconv.IntSize / 8
 )
+
+type FileDescriptor struct {
+	Name       string	`json:"name"`
+	Offset     int64      `json:"offset"`
+	DiskSize int64        `json:"diskSize"`
+	Size       int      `json:"size"`
+}
+
+type FileSys struct {
+	Files      map[string]FileDescriptor  `json:"files"`
+	DiskSize int64                `json:"diskSize"`
+}
+
+var raid FileSys
+
+func saveRaidToFile(filename string) error {
+	data, err := json.MarshalIndent(raid, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(filename, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func loadRaidFromFile(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		raid = FileSys{
+			Files: map[string]FileDescriptor{},
+			DiskSize: 0,
+		}
+		saveRaidToFile(filename)
+		return err
+	}
+
+	err = json.Unmarshal(data, &raid)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func InitRaid() error {
+	err := loadRaidFromFile("raid.json")
+	if err != nil {
+		fmt.Println("Raid loaded unsuccessfully from raid.json")
+		return err
+	} 
+	return nil
+}
 
 // General case of checksum matrix.
 // Has the property that the first d rows are identity matrix
@@ -143,9 +200,20 @@ func (m Matrix) MultiplyData(data []byte) ([][]byte, error) {
 	return shards, nil
 }
 
+type NameEmtpyError struct {}
+
+func (e *NameEmtpyError) Error() string {
+    return "file already exists"
+}
+
 // Stores a file of arbitrary size in data shards using the provided matrix.
 // First 8 bytes of the file are used to store the file size.
 func StoreFile(file string, m Matrix, directory string) error {
+	// Check FileSys
+	if _, ok := raid.Files[file]; ok {
+		return &NameEmtpyError{}
+	}
+
 	// Create directory if it does not exist
 	if _, err := os.Stat(directory); os.IsNotExist(err) {
 		os.Mkdir(directory, 0755)
@@ -182,16 +250,34 @@ func StoreFile(file string, m Matrix, directory string) error {
 
 	// Write the shards to the directory
 	for i, shard := range shards {
-		err = os.WriteFile(fmt.Sprintf("%s/shard%d", directory, i), shard, 0644)
+		// err = os.WriteFile(fmt.Sprintf("%s/shard%d", directory, i), shard, 0644)
+		diskPath := "./data/shard" + strconv.Itoa(i)
+		f, err := os.OpenFile(diskPath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
-			return err
+			f, err = os.Create(diskPath)
 		}
+		f.Write(shard)
 	}
 
+	// create file descriptor
+	var FileDescriptor FileDescriptor
+	FileDescriptor.Name = file
+	FileDescriptor.Size = len(data)
+	FileDescriptor.DiskSize = int64(len(shards[0]))
+	FileDescriptor.Offset = raid.DiskSize
+	raid.Files[file] = FileDescriptor
+	raid.DiskSize += FileDescriptor.DiskSize
+
+	// export the raid to JSON
+	err = saveRaidToFile("raid.json")
+	if err != nil {
+		fmt.Println("Error saving Raid6 to file:", err)
+		return err
+	}
 	return nil
 }
 
-func ReadFile(file string, m Matrix, directory string) error {
+func ReadFile(fileSrc string, file string, m Matrix, directory string) error {
 	d := len(m[0])
 	c := len(m) - d
 
@@ -200,14 +286,21 @@ func ReadFile(file string, m Matrix, directory string) error {
 		return fmt.Errorf("directory does not exist")
 	}
 
-	// Read the shards
+	// Read the shards corresponding to the file
 	shards := make([][]byte, d+c)
+	FileDescriptor := raid.Files[fileSrc]
+
 	for i := 0; i < d+c; i++ {
-		shard, err := os.ReadFile(fmt.Sprintf("%s/shard%d", directory, i))
+		// shard, err := os.ReadFile(fmt.Sprintf("%s/shard%d", directory, i))
+		diskPath := "./data/shard" + strconv.Itoa(i)
+		buf := make([]byte, FileDescriptor.DiskSize)
+		f, _ := os.Open(diskPath)
+		_, err := f.ReadAt(buf, FileDescriptor.Offset)
+
 		if err != nil {
 			return fmt.Errorf("error reading shard %d, consider running recovery", i)
 		}
-		shards[i] = shard
+		shards[i] = buf
 	}
 
 	// Check the shards
